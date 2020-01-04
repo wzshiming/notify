@@ -18,6 +18,16 @@ func Once(signal os.Signal, fun func()) {
 	std.Once(signal, fun)
 }
 
+// OnSlice system signal callback.
+func OnSlice(signals []os.Signal, fun func()) func() {
+	return std.OnSlice(signals, fun)
+}
+
+// OnceSlice system signal callback.
+func OnceSlice(signals []os.Signal, fun func()) {
+	std.OnceSlice(signals, fun)
+}
+
 type notify struct {
 	ch    chan os.Signal
 	size  int
@@ -32,16 +42,63 @@ func newNotify() *notify {
 }
 
 func (n *notify) Once(sig os.Signal, fun func()) {
-	off := func() {}
-	off = n.On(sig, func() {
-		fun()
-		off()
-	})
+	n.mut.Lock()
+	defer n.mut.Unlock()
+	n.once(sig, fun)
+}
+
+func (n *notify) OnceSlice(sigs []os.Signal, fun func()) {
+	n.mut.Lock()
+	defer n.mut.Unlock()
+	switch len(sigs) {
+	case 0:
+		return
+	case 1:
+		n.once(sigs[0], fun)
+		return
+	default:
+		c := make([]func(), 0, len(sigs))
+		ff := func() {
+			for _, c := range c {
+				c()
+			}
+			fun()
+		}
+		for _, sig := range sigs {
+			c = append(c, n.on(sig, ff))
+		}
+		return
+	}
 }
 
 func (n *notify) On(sig os.Signal, fun func()) func() {
 	n.mut.Lock()
 	defer n.mut.Unlock()
+	return n.on(sig, fun)
+}
+
+func (n *notify) OnSlice(sigs []os.Signal, fun func()) func() {
+	n.mut.Lock()
+	defer n.mut.Unlock()
+	switch len(sigs) {
+	case 0:
+		return func() {}
+	case 1:
+		return n.on(sigs[0], fun)
+	default:
+		c := make([]func(), 0, len(sigs))
+		for _, sig := range sigs {
+			c = append(c, n.on(sig, fun))
+		}
+		return func() {
+			for _, c := range c {
+				c()
+			}
+		}
+	}
+}
+
+func (n *notify) on(sig os.Signal, fun func()) func() {
 	_, ok := n.event[sig]
 	if !ok {
 		n.init(sig)
@@ -52,6 +109,14 @@ func (n *notify) On(sig os.Signal, fun func()) func() {
 	return func() {
 		n.off(sig, i)
 	}
+}
+
+func (n *notify) once(sig os.Signal, fun func()) {
+	off := func() {}
+	off = n.on(sig, func() {
+		fun()
+		off()
+	})
 }
 
 func (n *notify) off(sig os.Signal, i int) {
@@ -93,14 +158,15 @@ func (n *notify) reset() {
 
 func (n *notify) run() {
 	for sig := range n.ch {
-		n.on(sig)
+		n.step(sig)
 	}
 }
 
-func (n *notify) on(sig os.Signal) {
+func (n *notify) step(sig os.Signal) {
 	n.mut.Lock()
-	defer n.mut.Unlock()
-	for _, fun := range n.event[sig] {
+	funcs := n.event[sig]
+	n.mut.Unlock()
+	for _, fun := range funcs {
 		fun()
 	}
 }
