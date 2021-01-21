@@ -9,23 +9,13 @@ import (
 var std = newNotify()
 
 // On system signal callback.
-func On(signal os.Signal, fun func()) func() {
-	return std.On(signal, fun)
+func On(fun func(), sigs ...os.Signal) func() {
+	return std.On(fun, sigs...)
 }
 
 // Once system signal callback.
-func Once(signal os.Signal, fun func()) func() {
-	return std.Once(signal, fun)
-}
-
-// OnSlice system signal callback.
-func OnSlice(signals []os.Signal, fun func()) func() {
-	return std.OnSlice(signals, fun)
-}
-
-// OnceSlice system signal callback.
-func OnceSlice(signals []os.Signal, fun func()) func() {
-	return std.OnceSlice(signals, fun)
+func Once(fun func(), sigs ...os.Signal) func() {
+	return std.Once(fun, sigs...)
 }
 
 type notify struct {
@@ -41,16 +31,12 @@ func newNotify() *notify {
 	}
 }
 
-func (n *notify) Once(sig os.Signal, fun func()) func() {
-	return warpOnceFunc(n.once(sig, warpOnceFunc(fun)))
-}
-
-func (n *notify) OnceSlice(sigs []os.Signal, fun func()) func() {
+func (n *notify) Once(fun func(), sigs ...os.Signal) func() {
 	switch len(sigs) {
 	case 0:
 		return func() {}
 	case 1:
-		return n.Once(sigs[0], fun)
+		return warpOnceFunc(n.once(sigs[0], warpOnceFunc(fun)))
 	default:
 		offs := make([]func(), 0, len(sigs))
 		off := warpOnceFunc(func() {
@@ -69,16 +55,12 @@ func (n *notify) OnceSlice(sigs []os.Signal, fun func()) func() {
 	}
 }
 
-func (n *notify) On(sig os.Signal, fun func()) func() {
-	return warpOnceFunc(n.on(sig, fun))
-}
-
-func (n *notify) OnSlice(sigs []os.Signal, fun func()) func() {
+func (n *notify) On(fun func(), sigs ...os.Signal) func() {
 	switch len(sigs) {
 	case 0:
 		return func() {}
 	case 1:
-		return n.On(sigs[0], fun)
+		return warpOnceFunc(n.on(sigs[0], fun))
 	default:
 		offs := make([]func(), 0, len(sigs))
 		for _, sig := range sigs {

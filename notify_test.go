@@ -11,8 +11,8 @@ var pid = os.Getpid()
 
 func TestNotify_On(t *testing.T) {
 	callSize := 0
-	off1 := On(syscall.SIGUSR1, func() { callSize++ })
-	off2 := On(syscall.SIGUSR2, func() { callSize++ })
+	off1 := On(func() { callSize++ }, syscall.SIGUSR1)
+	off2 := On(func() { callSize++ }, syscall.SIGUSR2)
 	syscall.Kill(pid, syscall.SIGUSR1)
 	time.Sleep(time.Millisecond)
 	syscall.Kill(pid, syscall.SIGUSR2)
@@ -33,7 +33,7 @@ func TestNotify_On(t *testing.T) {
 
 func TestNotify_Once(t *testing.T) {
 	callSize := 0
-	Once(syscall.SIGUSR1, func() { callSize++ })
+	Once(func() { callSize++ }, syscall.SIGUSR1)
 	syscall.Kill(pid, syscall.SIGUSR1)
 	time.Sleep(time.Millisecond)
 	syscall.Kill(pid, syscall.SIGUSR1)
@@ -45,7 +45,7 @@ func TestNotify_Once(t *testing.T) {
 
 func TestNotify_OnSlice(t *testing.T) {
 	callSize := 0
-	off := OnSlice([]os.Signal{syscall.SIGUSR1, syscall.SIGUSR2}, func() { callSize++ })
+	off := On(func() { callSize++ }, syscall.SIGUSR1, syscall.SIGUSR2)
 
 	syscall.Kill(pid, syscall.SIGUSR1)
 	time.Sleep(time.Millisecond)
@@ -67,7 +67,7 @@ func TestNotify_OnSlice(t *testing.T) {
 
 func TestNotify_OnceSlice(t *testing.T) {
 	callSize := 0
-	OnceSlice([]os.Signal{syscall.SIGUSR1, syscall.SIGUSR2}, func() { callSize++ })
+	Once(func() { callSize++ }, syscall.SIGUSR1, syscall.SIGUSR2)
 	syscall.Kill(pid, syscall.SIGUSR1)
 	time.Sleep(time.Millisecond)
 	syscall.Kill(pid, syscall.SIGUSR2)
