@@ -14,8 +14,8 @@ func On(signal os.Signal, fun func()) func() {
 }
 
 // Once system signal callback.
-func Once(signal os.Signal, fun func()) {
-	std.Once(signal, fun)
+func Once(signal os.Signal, fun func()) func() {
+	return std.Once(signal, fun)
 }
 
 // OnSlice system signal callback.
@@ -24,8 +24,8 @@ func OnSlice(signals []os.Signal, fun func()) func() {
 }
 
 // OnceSlice system signal callback.
-func OnceSlice(signals []os.Signal, fun func()) {
-	std.OnceSlice(signals, fun)
+func OnceSlice(signals []os.Signal, fun func()) func() {
+	return std.OnceSlice(signals, fun)
 }
 
 type notify struct {
@@ -41,64 +41,61 @@ func newNotify() *notify {
 	}
 }
 
-func (n *notify) Once(sig os.Signal, fun func()) {
-	n.mut.Lock()
-	defer n.mut.Unlock()
-	n.once(sig, fun)
+func (n *notify) Once(sig os.Signal, fun func()) func() {
+	return warpOnceFunc(n.once(sig, warpOnceFunc(fun)))
 }
 
-func (n *notify) OnceSlice(sigs []os.Signal, fun func()) {
-	n.mut.Lock()
-	defer n.mut.Unlock()
-	switch len(sigs) {
-	case 0:
-		return
-	case 1:
-		n.once(sigs[0], fun)
-		return
-	default:
-		c := make([]func(), 0, len(sigs))
-		ff := func() {
-			for _, c := range c {
-				c()
-			}
-			fun()
-		}
-		for _, sig := range sigs {
-			c = append(c, n.on(sig, ff))
-		}
-		return
-	}
-}
-
-func (n *notify) On(sig os.Signal, fun func()) func() {
-	n.mut.Lock()
-	defer n.mut.Unlock()
-	return n.on(sig, fun)
-}
-
-func (n *notify) OnSlice(sigs []os.Signal, fun func()) func() {
-	n.mut.Lock()
-	defer n.mut.Unlock()
+func (n *notify) OnceSlice(sigs []os.Signal, fun func()) func() {
 	switch len(sigs) {
 	case 0:
 		return func() {}
 	case 1:
-		return n.on(sigs[0], fun)
+		return n.Once(sigs[0], fun)
 	default:
-		c := make([]func(), 0, len(sigs))
-		for _, sig := range sigs {
-			c = append(c, n.on(sig, fun))
-		}
-		return func() {
-			for _, c := range c {
-				c()
+		offs := make([]func(), 0, len(sigs))
+		off := warpOnceFunc(func() {
+			for _, off := range offs {
+				off()
 			}
+		})
+		funAndOff := warpOnceFunc(func() {
+			fun()
+			off()
+		})
+		for _, sig := range sigs {
+			offs = append(offs, n.on(sig, funAndOff))
 		}
+		return off
+	}
+}
+
+func (n *notify) On(sig os.Signal, fun func()) func() {
+	return warpOnceFunc(n.on(sig, fun))
+}
+
+func (n *notify) OnSlice(sigs []os.Signal, fun func()) func() {
+	switch len(sigs) {
+	case 0:
+		return func() {}
+	case 1:
+		return n.On(sigs[0], fun)
+	default:
+		offs := make([]func(), 0, len(sigs))
+		for _, sig := range sigs {
+			offs = append(offs, n.on(sig, fun))
+		}
+		return warpOnceFunc(func() {
+			for _, off := range offs {
+				off()
+			}
+		})
 	}
 }
 
 func (n *notify) on(sig os.Signal, fun func()) func() {
+	n.mut.Lock()
+	defer n.mut.Unlock()
+
 	_, ok := n.event[sig]
 	if !ok {
 		n.init(sig)
@@ -111,17 +108,19 @@ func (n *notify) on(sig os.Signal, fun func()) func() {
 	}
 }
 
-func (n *notify) once(sig os.Signal, fun func()) {
+func (n *notify) once(sig os.Signal, fun func()) func() {
 	off := func() {}
 	off = n.on(sig, func() {
 		fun()
 		off()
 	})
+	return off
 }
 
 func (n *notify) off(sig os.Signal, i int) {
 	n.mut.Lock()
 	defer n.mut.Unlock()
+
 	_, ok := n.event[sig]
 	if !ok {
 		return
@@ -168,5 +167,12 @@ func (n *notify) step(sig os.Signal) {
 	n.mut.Unlock()
 	for _, fun := range funcs {
 		fun()
+	}
+}
+
+func warpOnceFunc(fun func()) func() {
+	var once sync.Once
+	return func() {
+		once.Do(fun)
 	}
 }
